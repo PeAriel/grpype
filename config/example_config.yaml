@@ -1,0 +1,23 @@
+data_path: /path/to/your/data/folder
+detectors:
+  - n0
+  - n1
+  - n2
+  - n3
+  - n4
+  - n5
+  - n6
+  - n7
+  - n8
+  - n9
+  - na
+  - nb
+  - b0
+  - b1
+ndetectors: 14
+echans: 128
+DATALEN: 1792
+EPS: 0.000000001
+search_bank_folder: search_bank
+integration_sky_folder: integration_sky
+integration_spec_folder: integration_spec

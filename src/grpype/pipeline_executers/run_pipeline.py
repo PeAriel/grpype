@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timedelta
+from time import time
+
+import numpy as np
+
+from grpype.detection.global_params import DATAPATH
+from grpype.detection.pipeline import Detection
+from grpype.detection.templates import GlitchTemplates, TemplateBank
+from grpype.data_io.data_handlers import TTEData
+from grpype.detection.utils import generate_seed
+from grpype.pipeline_executers.exec_utils import already_done
+
+
+def run_pipeline(date, delta, timeslides=None, simulate=False, save=False, jobname="", tte_npar=1):
+    binning = 0.01
+    tbank = TemplateBank(binning)
+    tbank.load_templates()
+    glitches = GlitchTemplates(binning, 3)
+
+    nbursts = 18
+    burst_durations = np.around(0.04 * 1.35 ** np.arange(-2, nbursts), 3)
+    rolling_window_sec = np.array([40.0] * (4 + 2) + [60.0] * (nbursts - 4 - 6) + [100.0] * 6)
+    mf_threshold = 6.3
+    glitch_threshold = 6.3
+    slice_seconds = np.array([2.0] * (4 + 2) + [3.0] * (nbursts - 4 - 6) + [4.5] * 3 + [5] * 3) * 60
+    min_dist_sec = 30
+    overlap = 1
+    glitch_extend = 2
+    nbursts += 2
+
+    for j in range(delta):
+        curdate = date + timedelta(hours=j)
+        seed = generate_seed(curdate, burst_durations[0])
+        np.random.seed(seed)
+
+        try:
+            burstdata = TTEData(
+                curdate,
+                binning,
+                burst_durations[0],
+                timeslides=timeslides,
+                simulate=simulate,
+                save_obj=False,
+                npar=tte_npar,
+            )
+        except OSError:
+            res_str = f"results/{curdate.year}/corrupted.txt" if timeslides is None else f"results_timeslides/{curdate.year}/corrupted.txt"
+            res_str = f"results_simul/{curdate.year}/corrupted.txt" if simulate else res_str
+            with open(DATAPATH / res_str, "a") as f:
+                f.write(f"corrupted date {curdate}\n")
+            continue
+
+        for i in range(1, nbursts):  # We start from one since we don't want the 2 bin burst
+            res_str = f"results/{curdate.year}/finished_{jobname}.txt" if timeslides is None else f"results_timeslides/{curdate.year}/finished_{jobname}.txt"
+            res_str = f"results_simul/{curdate.year}/finished_{jobname}.txt" if simulate else res_str
+            if already_done(curdate, burst_durations[i], res_str, full=False):
+                continue
+
+            seed = generate_seed(curdate, burst_durations[i])
+            np.random.seed(seed)
+            if i > 0 and simulate:
+                burstdata = TTEData(
+                    curdate,
+                    binning,
+                    burst_durations[i],
+                    timeslides=timeslides,
+                    simulate=simulate,
+                    save_obj=False,
+                    npar=tte_npar,
+                )
+            if timeslides is not None and burst_durations[i] > 5:
+                burstdata = TTEData(
+                    curdate,
+                    binning,
+                    burst_durations[i],
+                    timeslides=timeslides * 1.8,
+                    simulate=simulate,
+                    save_obj=False,
+                    npar=tte_npar,
+                )
+
+            t0 = time()
+            burst_duration = burst_durations[i]
+            rolling_gap_sec = burst_duration * 3
+            burstdata.set_burst_duration(burst_duration)
+            detection = Detection(binning, burst_duration, rolling_window_sec[i], rolling_gap_sec)
+
+            mf, maxtimes, maxtemps, triggers_met = detection.match_filter(
+                burstdata,
+                tbank,
+                glitches,
+                slice_seconds[i],
+                mf_threshold,
+                min_dist_sec,
+                glitch_threshold,
+                glitch_extend,
+                overlap,
+            )
+
+            used_data = burstdata.total_time_used / 60
+
+            tot_time = time() - t0
+            print(
+                f"finished date {curdate}, bdur: {burst_duration}, Took: {tot_time:.2f} sec, triggers: {len(maxtimes)}, used data {used_data:.2f} min\n"
+            )
+            print(f"mf: {mf[maxtimes, maxtemps]}")
+            if save:
+                detection.save_triggers(
+                    curdate,
+                    burstdata.timeslides_minutes,
+                    simulate,
+                    clean=True,
+                    filename=f"triggers_{jobname}",
+                )
+                with open(DATAPATH / res_str, "a") as f:
+                    f.write(
+                        f"finished date {curdate}, bdur: {burst_duration}. Took: {tot_time:.2f} sec, triggers: {len(maxtimes)}, used data {used_data:.2f} min\n"
+                    )
+
+            del detection
+        del burstdata
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("year", type=int)
+    parser.add_argument("month", type=int)
+    parser.add_argument("day", type=int)
+    parser.add_argument("hour", type=int)
+    parser.add_argument("delta_hours", type=int)
+    parser.add_argument("--jobname", type=str, default="")
+    parser.add_argument("--timeslides", type=float, default=None)
+    parser.add_argument("--tte-npar", type=int, default=1)
+    parser.add_argument("--simulate", type=bool, default=False)
+    parser.add_argument("--save", type=bool, default=False)
+    args = parser.parse_args()
+
+    date = datetime(args.year, args.month, args.day, args.hour)
+    run_pipeline(
+        date,
+        args.delta_hours,
+        args.timeslides,
+        args.simulate,
+        save=args.save,
+        jobname=args.jobname,
+        tte_npar=args.tte_npar,
+    )
+
+
+if __name__ == "__main__":
+    main()
