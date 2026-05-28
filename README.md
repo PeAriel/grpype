@@ -3,7 +3,7 @@
 **grpype** is a matched-filter search pipeline for detecting short gamma-ray
 bursts (sGRBs) in [Fermi Gamma-ray Burst Monitor (GBM)](https://fermi.gsfc.nasa.gov/ssc/data/access/gbm/)
 time-tagged event (TTE) data. It implements the method described in
-[Perera, Zackay & Venumadhav (2025)](https://doi.org/10.3847/1538-4365/adb3d3),
+[Perera, Zackay & Venumadhav (2025)](https://arxiv.org/abs/2507.05739),
 which achieved a ~50% increase in the number of sGRB detections compared to
 the standard GBM catalog.
 
