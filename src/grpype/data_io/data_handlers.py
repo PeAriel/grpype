@@ -339,6 +339,11 @@ class DataLoaders:
             t0 = tte.time_range[0] + fullrng * slice_time[0]
             tf = tte.time_range[0] + fullrng * slice_time[1]
             st = [t0, tf]
+            mask = (tte.data.times >= t0) & (tte.data.times <= tf)
+            if not np.any(mask):
+                raise ValueError(
+                    f"No TTE events for {detector} in time slice [{t0}, {tf}]"
+                )
             tte = tte.slice_time(st)
 
         if time_bins is not None:

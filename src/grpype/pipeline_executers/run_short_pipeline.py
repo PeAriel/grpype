@@ -120,9 +120,7 @@ def run_short_pipeline(date, delta, timeslides=None, simulate=False, save=False,
                 with open(DATAPATH / res_str, "a") as f:
                     f.write(f"corrupted date {curdate}\n")
                 continue
-            except ValueError:
-                continue
-            except IndexError:
+            except (ValueError, IndexError, TypeError):
                 continue
 
             for i in range(nbursts):

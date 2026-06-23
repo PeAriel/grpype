@@ -52,6 +52,8 @@ def run_pipeline(date, delta, timeslides=None, simulate=False, save=False, jobna
             with open(DATAPATH / res_str, "a") as f:
                 f.write(f"corrupted date {curdate}\n")
             continue
+        except (ValueError, IndexError, TypeError):
+            continue
 
         for i in range(1, nbursts):  # We start from one since we don't want the 2 bin burst
             res_str = f"results/{curdate.year}/finished_{jobname}.txt" if timeslides is None else f"results_timeslides/{curdate.year}/finished_{jobname}.txt"
