@@ -191,14 +191,167 @@ class PowerLaw(SpectralModel):
         self.param_bounds = [alpha_prior]
         self.param_labels = ['alpha']
 
-    def __call__(self, alpha, bin_centroids):
+    def __call__(self, params, bin_centroids):
+        alpha = params[0] if not np.isscalar(params) else params
         x = bin_centroids
         return self.A * (x / self.epiv)**alpha
 
-    def log_prior(self, alpha):
+    def log_prior(self, params):
+        alpha = params[0] if not np.isscalar(params) else params
         if (self.min_alpha <= alpha <= self.max_alpha):
             return 0.0
         return -np.inf
+
+
+class Blackbody(SpectralModel):
+    """Single blackbody, F(E) ~ E^2 / (exp(E/kT) - 1)."""
+
+    def __init__(self, A=1, kt_prior=None):
+        kt_prior = [2.0, 100.0] if kt_prior is None else kt_prior
+        self.A = A
+        self.min_kt = kt_prior[0]
+        self.max_kt = kt_prior[1]
+
+        self.param_bounds = [kt_prior]
+        self.param_labels = ['kt']
+        self.initial_guess = [10.0]
+
+    def __call__(self, params, energy_bin_centroids):
+        kt = params[0] if not np.isscalar(params) else params
+        x = energy_bin_centroids
+        if kt <= 0 or not np.isfinite(kt):
+            return np.zeros_like(x)
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            spectrum = self.A * x**2 / np.expm1(x / kt)
+        return np.nan_to_num(spectrum, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def log_prior(self, params):
+        kt = params[0] if not np.isscalar(params) else params
+        if self.min_kt <= kt <= self.max_kt:
+            return 0.0
+        return -np.inf
+
+
+class DoubleBlackbody(SpectralModel):
+    """Sum of two blackbodies parametrized by (kt_cool, kt_hot, frac_cool).
+
+    Each component is normalized to unit bolometric energy flux
+    (integral of E * BB(E) dE = (pi^4 / 15) kT^4 up to a constant), so
+    ``frac_cool`` is the cool component's fraction of the total energy flux.
+    This keeps the overall amplitude analytic (handled by ``calc_amp``) and
+    makes the mixture parameter well-conditioned. ``kt_cool < kt_hot`` is
+    enforced in the prior to remove label switching.
+    """
+
+    def __init__(self, A=1, kt_cool_prior=None, kt_hot_prior=None):
+        kt_cool_prior = [2.0, 30.0] if kt_cool_prior is None else kt_cool_prior
+        kt_hot_prior = [5.0, 150.0] if kt_hot_prior is None else kt_hot_prior
+        self.A = A
+
+        self.min_kt_cool, self.max_kt_cool = kt_cool_prior
+        self.min_kt_hot, self.max_kt_hot = kt_hot_prior
+
+        self.param_bounds = [kt_cool_prior, kt_hot_prior, [0.0, 1.0]]
+        self.param_labels = ['kt_cool', 'kt_hot', 'frac_cool']
+        self.initial_guess = [4.5, 15.0, 0.5]
+
+    @staticmethod
+    def _bb_unit_eflux(x, kt):
+        """Blackbody photon spectrum normalized to unit energy flux."""
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            bb = x**2 / np.expm1(x / kt)
+        bb = np.nan_to_num(bb, nan=0.0, posinf=0.0, neginf=0.0)
+        norm = (np.pi**4 / 15.0) * kt**4
+        return bb / norm
+
+    def __call__(self, params, energy_bin_centroids):
+        kt_cool, kt_hot, frac_cool = params
+        x = energy_bin_centroids
+        if kt_cool <= 0 or kt_hot <= 0 or not np.isfinite(kt_cool) or not np.isfinite(kt_hot):
+            return np.zeros_like(x)
+        spectrum = self.A * (
+            frac_cool * self._bb_unit_eflux(x, kt_cool)
+            + (1.0 - frac_cool) * self._bb_unit_eflux(x, kt_hot)
+        )
+        return np.nan_to_num(spectrum, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def log_prior(self, params):
+        kt_cool, kt_hot, frac_cool = params
+        if (self.min_kt_cool <= kt_cool <= self.max_kt_cool and
+                self.min_kt_hot <= kt_hot <= self.max_kt_hot and
+                0.0 <= frac_cool <= 1.0 and
+                kt_cool < kt_hot):
+            return 0.0
+        return -np.inf
+
+
+class OTTB(SpectralModel):
+    """Optically thin thermal bremsstrahlung, F(E) = A (E/epiv)^-1 exp(-E/kT)."""
+
+    def __init__(self, epiv=100, A=1, kt_prior=None):
+        kt_prior = [3.0, 300.0] if kt_prior is None else kt_prior
+        self.epiv = epiv
+        self.A = A
+        self.min_kt = kt_prior[0]
+        self.max_kt = kt_prior[1]
+
+        self.param_bounds = [kt_prior]
+        self.param_labels = ['kt']
+        self.initial_guess = [40.0]
+
+    def __call__(self, params, energy_bin_centroids):
+        kt = params[0] if not np.isscalar(params) else params
+        x = energy_bin_centroids
+        if kt <= 0 or not np.isfinite(kt):
+            return np.zeros_like(x)
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            spectrum = self.A * (x / self.epiv) ** -1 * np.exp(-x / kt)
+        return np.nan_to_num(spectrum, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def log_prior(self, params):
+        kt = params[0] if not np.isscalar(params) else params
+        if self.min_kt <= kt <= self.max_kt:
+            return 0.0
+        return -np.inf
+
+
+MAGNETAR_MODELS = {
+    'compt': CutoffPowerLaw,
+    'band': BandFunction,
+    'bb': Blackbody,
+    'bb2': DoubleBlackbody,
+    'ottb': OTTB,
+    'pl': PowerLaw,
+}
+
+DEFAULT_MODEL_SET = ['compt', 'band', 'bb2', 'ottb', 'bb', 'pl']
+
+
+def get_model(name):
+    """Instantiate a magnetar spectral model by short name."""
+    try:
+        cls = MAGNETAR_MODELS[name]
+    except KeyError:
+        raise ValueError(
+            f"Unknown magnetar model '{name}'. Available: {sorted(MAGNETAR_MODELS)}"
+        )
+
+    if name == 'compt':
+        model = cls(alpha_prior=[-2.0, 3.0], epeak_prior=[8.0, 500.0])
+        model.initial_guess = [0.5, 40.0]
+    elif name == 'band':
+        model = cls(
+            alpha_prior=[-2.0, 3.0],
+            beta_prior=[-7.0, -1.5],
+            epeak_prior=[8.0, 5000.0],
+        )
+        model.initial_guess = [-0.5, -2.3, 40.0]
+    elif name == 'pl':
+        model = cls(alpha_prior=[-6.0, 2.0])
+        model.initial_guess = [-2.0]
+    else:
+        model = cls()
+    return model
 
 
 class FullResponseHandler:
