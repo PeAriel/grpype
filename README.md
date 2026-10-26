@@ -1,4 +1,5 @@
 # grpype
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23662480.svg)](https://doi.org/10.5281/zenodo.23662480)
 
 **grpype** is a matched-filter search pipeline for detecting short gamma-ray
 bursts (sGRBs) in [Fermi Gamma-ray Burst Monitor (GBM)](https://fermi.gsfc.nasa.gov/ssc/data/access/gbm/)
