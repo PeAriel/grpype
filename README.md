@@ -21,8 +21,6 @@ catalog:
   concatenates results across time slices and timescales.
 - **Parameter estimation** — localizes candidates on the sky (HEALPix maps via
   MCMC) and fits their spectral parameters.
-- **Multi-mission follow-up** — cross-matches triggers with the Swift/BAT
-  catalog and refines localizations using BAT data.
 
 ## Requirements
 
@@ -131,14 +129,6 @@ If you use this pipeline in your research, please cite:
 This pipeline uses data products from the
 [Fermi Gamma-ray Burst Monitor (GBM)](https://fermi.gsfc.nasa.gov/ssc/data/access/gbm/),
 including the official GBM burst catalog and trigger catalogs.
-
-It also makes use of data from the
-[Swift Burst Alert Telescope (BAT)](https://swift.gsfc.nasa.gov/about_swift/bat_desc.html),
-including the Swift/BAT GRB catalog.
-
-Some data reduction and analysis rely on  
-[HEASoft](https://heasarc.gsfc.nasa.gov/docs/software/heasoft/),
-a suite of tools provided by NASA's HEASARC.
 
 ## License
 
