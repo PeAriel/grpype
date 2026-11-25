@@ -409,6 +409,10 @@ class FullResponseHandler:
         self.phis = np.load(self.rsps_folder / 'phis.npy')
         self.thetas = np.load(self.rsps_folder / 'thetas.npy')
         self.ras, self.decs = self.poshist.to_equatorial(self.phis, self.thetas, self.metobj.fermi)
+
+        ra_sorted = np.sort(np.mod(self.ras, 360))
+        ra_gaps = np.diff(np.append(ra_sorted, ra_sorted[0] + 360))
+        self.ra_periodic = bool(ra_gaps.max() < 5.0)
         
         self.spec_model = spec_model  # callable: params, bin_centroids -> spectrum
 
@@ -549,7 +553,9 @@ class FullResponseHandler:
         ra, dec = theta[:2]
         spec_params = theta[2:]
 
-        if not (self.ras.min() <= ra <= self.ras.max() and self.decs.min() <= dec <= self.decs.max()):
+        if not (self.decs.min() <= dec <= self.decs.max()):
+            return -np.inf
+        if not self.ra_periodic and not (self.ras.min() <= ra % 360 <= self.ras.max()):
             return -np.inf
 
         spec_prior = self.spec_model.log_prior(spec_params)
@@ -572,7 +578,11 @@ class FullResponseHandler:
 
         sampler = emcee.EnsembleSampler(nwalkers, ndim, self.log_posterior, args=(self.d, self.bkg))
         sampler.run_mcmc(p0, nsteps, progress=progress)
-        
+
+        # Map RA back into [0, 360) so every get_chain caller sees wrapped values.
+        # The default in-memory emcee Backend exposes the chain array directly.
+        sampler.backend.chain[..., 0] %= 360.0
+
         return sampler
     
     def plot_skymap(self, samples, fwhm_deg=3.0, points=None, clevels=None, title=None, **plot_kwargs):
@@ -902,13 +912,29 @@ def extract_stats(samples):
     results = {}
     labels = ['ra', 'dec', 'alpha', 'beta', 'epeak']
     for i, label in enumerate(labels):
-        counts, bins = np.histogram(samples[:, i], bins=100)
-        bin_centroids = (bins[1:] + bins[:-1]) / 2
-        
-        q16, q50, q84 = np.percentile(samples[:, i], percentiles)
+        x = samples[:, i]
+        shift = 0.0
+        if label == 'ra':
+            # RA is circular: center the posterior peak at 180 deg so a posterior
+            # straddling RA = 0/360 is not split into two distant lumps.
+            counts, bins = np.histogram(np.mod(x, 360), bins=72, range=(0, 360))
+            peak = np.argmax(counts)
+            shift = 180.0 - (bins[peak] + bins[peak + 1]) / 2
+            x = np.mod(x + shift, 360)
 
-        results[f'{label}_max'] = bin_centroids[np.argmax(counts)]
-        results[f'{label}_med'] = q50
+        counts, bins = np.histogram(x, bins=100)
+        bin_centroids = (bins[1:] + bins[:-1]) / 2
+
+        q16, q50, q84 = np.percentile(x, percentiles)
+
+        ml = bin_centroids[np.argmax(counts)]
+        med = q50
+        if label == 'ra':
+            ml = np.mod(ml - shift, 360)
+            med = np.mod(q50 - shift, 360)
+
+        results[f'{label}_max'] = ml
+        results[f'{label}_med'] = med
         results[f'{label}_errm'] = q50 - q16
         results[f'{label}_errp'] = q84 - q50
     return pd.DataFrame([results])
